@@ -3,6 +3,7 @@ from adafruit_rplidar import RPLidar
 import numpy as np
 import time
 import math 
+import matplotlib.pyplot as plt
 
 
 #### fuzzy 
@@ -109,12 +110,12 @@ def fuzzyeror():
     else :
         miux[0] = 0
     
-
+    print(e)
     # untuk med
     if (e <= 13): ## KENAPA E < 13
         miux[1] = 0
     
-    if (e > 13 and e <= 16):
+    elif (e > 13 and e <= 16):
         miux[1] = ((e) - (13)) / (3)
     
     elif (e > 16 and e <= 19):    
@@ -230,7 +231,7 @@ def pid(pv):
     kd_out = cog * kd
 
     # inputan pv
-    
+    pvv =  pv
     ############
     p = kp_out * e
     i = ki_out * sumerr
@@ -264,6 +265,12 @@ try:
 
 except KeyboardInterrupt:
     print('Stopping.')
+    
+   # plt.plot(time, position)
+    plt.xlabel('Time ')
+    plt.ylabel('Position')
+
+    plt.show()
 
 
 
@@ -272,6 +279,8 @@ except KeyboardInterrupt:
 lidar.stop()
 lidar.stop_motor()
 lidar.disconnect()
+
+
 
 
 
