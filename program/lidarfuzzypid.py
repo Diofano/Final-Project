@@ -4,7 +4,15 @@ import numpy as np
 import time
 import math 
 import matplotlib.pyplot as plt
+import serial
+import pandas as pd
+import csv
+import openpyxl
 
+##### parsing data arduino ############
+#ser = serial.Serial('/dev/ttyACM0', baudrate = 115200, timeout = 1)
+#time.sleep(3)
+####################################
 
 #### fuzzy 
 cog = 0.0
@@ -60,9 +68,9 @@ kp_out = 0.0
 ki_out = 0.0
 kd_out = 0.0
 
-timeiID  = 1.0
+timeiID  = 0.0
 timenow  = 0.0
-timelast = 0
+timelast = 0.0
 
 ##############################################
 
@@ -220,11 +228,16 @@ def pid(pv):
     global selisih
     global de
     global e2
+    global timelast
 
     fuzzyeror()
     fuzzydeltaerror()
-    rules()
+    rules() 
+    timenow = round(time.time()*1000)
+    timeiID = timenow - timelast
 
+    #print("Milliseconds since epoch:",timenow)
+    
     ## konstanta 
     kp_out = cog * kp
     ki_out = cog * ki
@@ -240,17 +253,27 @@ def pid(pv):
     sumerr = e * timeiID
     selisih = de / timeiID
 
-    e = setpoint - pv
+    e = setpoint - pvv
 
     de = e - e2
     de = abs(de)
 
     vpid = p + i + d
-    #print(vpid)
+    with open('output.csv', mode='a') as f:
+            keys = ['Erorr', 'Time', 'Vpid']
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writeheader() # add column names in the CSV file
+            writer.writerow({'Erorr': e, 'Time': timenow, 'Vpid': vpid})
+    vpid = abs(vpid)
 
+    print(vpid)
 
+   # ser.write('*x,123,y,456'.encode('ascii')+b'\r\n')
+    
+    
     e2 = e
     timelast = timenow
+
 
 ###############################
 
@@ -267,10 +290,10 @@ except KeyboardInterrupt:
     print('Stopping.')
     
    # plt.plot(time, position)
-    plt.xlabel('Time ')
-    plt.ylabel('Position')
+   # plt.xlabel('Time ')
+   # plt.ylabel('Position')#
 
-    plt.show()
+    #plt.show()
 
 
 
@@ -279,6 +302,9 @@ except KeyboardInterrupt:
 lidar.stop()
 lidar.stop_motor()
 lidar.disconnect()
+
+
+
 
 
 
