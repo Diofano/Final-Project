@@ -1,4 +1,4 @@
-from math import floor
+from math import copysign, floor
 from adafruit_rplidar import RPLidar
 import numpy as np
 import time
@@ -10,8 +10,8 @@ import csv
 import openpyxl
 
 ##### parsing data arduino ############
-#ser = serial.Serial('/dev/ttyACM0', baudrate = 115200, timeout = 1)
-#time.sleep(3)
+ser = serial.Serial('/dev/ttyACM0', baudrate = 115200, timeout = 1)
+
 ####################################
 
 #### fuzzy 
@@ -24,7 +24,7 @@ medpos = 2.0  # #med tunning
 highpos = 4.0  ## high tunning
 
 data1 = np.zeros((20,), dtype = float)
-#print(data1)
+##print(data1)
 jarakk = 0.0
 tambah = 0.0
 hasil = 0.0
@@ -118,7 +118,7 @@ def fuzzyeror():
     else :
         miux[0] = 0
     
-    print(e)
+    #print(e)
     # untuk med
     if (e <= 13): ## KENAPA E < 13
         miux[1] = 0
@@ -146,7 +146,7 @@ def fuzzyeror():
     else:
         miux[2] = 0
     
-
+   
 def fuzzydeltaerror():
     # untuk  low2
     if (de <= 0):
@@ -218,10 +218,19 @@ def defuzzy(rule00,rule01,rule02,rule10,rule11,rule12,rule20,rule21,rule22):
     sigma_alfa_out = (rule00 * lowpos) + (rule01 * medpos) + (rule02 * lowpos) + (rule10 * medpos) + (rule11 * medpos) + (rule12 * highpos) + (rule20 * highpos) + (rule21 * highpos) + (rule22 * lowpos);
     sigma_alfa = rule00 + rule01 + rule02 + rule10 + rule11 + rule12 + rule20 + rule21 + rule22
 
-    cog = sigma_alfa_out / sigma_alfa
+    cog = round(sigma_alfa_out / sigma_alfa,2)
     if (sigma_alfa_out == 0 or sigma_alfa == 0):
         cog = 0
-  
+   # print(cog)
+
+def getValues(salah,pidhasil):
+    fake = str(0)
+    salah = str(salah)
+    pidhasil = str(pidhasil)
+    kirim = fake + ',' + salah + ',' + pidhasil
+    ser.write(kirim.encode('ascii')+b'\r\n')
+###############################
+#  
 def pid(pv):
     global e 
     global sumerr
@@ -235,8 +244,7 @@ def pid(pv):
     rules() 
     timenow = round(time.time()*1000)
     timeiID = timenow - timelast
-
-    #print("Milliseconds since epoch:",timenow)
+    ##print("Milliseconds since epoch:",timenow)
     
     ## konstanta 
     kp_out = cog * kp
@@ -246,39 +254,38 @@ def pid(pv):
     # inputan pv
     pvv =  pv
     ############
-    p = kp_out * e
-    i = ki_out * sumerr
-    d = kd_out * selisih
+    p = round(kp_out * e,2)
+    i = round(ki_out * sumerr,2)
+    d = round(kd_out * selisih,2)
 
     sumerr = e * timeiID
-    selisih = de / timeiID
+    
 
-    e = setpoint - pvv
+    e = round(setpoint - pvv,2)
 
     de = e - e2
-    de = abs(de)
-
+    de = round(abs(de),2)
+    selisih = de / timeiID
+    print(pvv)
     vpid = p + i + d
-    with open('output.csv', mode='a') as f:
-            keys = ['Erorr', 'Time', 'Vpid']
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader() # add column names in the CSV file
-            writer.writerow({'Erorr': e, 'Time': timenow, 'Vpid': vpid})
-    vpid = abs(vpid)
-
-    print(vpid)
-
+    vpid = abs(round(vpid,2))
+    getValues(e,vpid)
    # ser.write('*x,123,y,456'.encode('ascii')+b'\r\n')
     
     
     e2 = e
     timelast = timenow
+  #  with open('hasil.csv', mode='a') as f:
+   ##         keys = ['Erorr', 'Time', 'Vpid', 'p', 'i','d']
+    #        writer = csv.DictWriter(f, fieldnames=keys)
+    #        writer.writeheader() # add column names in the CSV file
+    #        writer.writerow({'Erorr': e, 'Time': timenow, 'Vpid': vpid, 'p': p, 'i' :i, 'd':d})
 
+    
 
-###############################
 
 try:
-   # print(lidar.get_info())
+   # #print(lidar.get_info())
     for scan in lidar.iter_scans():
         for (_, angle, distance) in scan:
             scan_data[min([359, floor(angle)])] = distance /10
@@ -302,10 +309,6 @@ except KeyboardInterrupt:
 lidar.stop()
 lidar.stop_motor()
 lidar.disconnect()
-
-
-
-
 
 
 
