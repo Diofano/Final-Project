@@ -1,0 +1,634 @@
+#include <DynamixelWorkbench.h>
+
+#define DEVICE_NAME ""
+
+#define BAUDRATE 1000000
+//RDepan
+#define DXL_ID_1 1
+#define DXL_ID_2 2
+#define DXL_ID_3 3
+//RBelakang
+#define DXL_ID_4 4
+#define DXL_ID_5 5
+#define DXL_ID_6 6
+//LDepan
+#define DXL_ID_7 7
+#define DXL_ID_8 8
+#define DXL_ID_9 9
+//LBelakang
+#define DXL_ID_10 10
+#define DXL_ID_11 11
+#define DXL_ID_12 12
+
+#define L1 0
+#define L2 1
+#define R1 2
+#define R2 3
+#define xx -1  //none
+
+//////////////////////////////////////////////////////
+#include <ros.h>
+#include <std_msgs/String.h>
+#include <std_msgs/UInt16.h>
+ros::NodeHandle  nh;
+
+void messageCb( const std_msgs::UInt16& led_msg) {
+
+       switch(led_msg.data)
+       {
+        case 1 :
+          siap();
+          break;
+        case 2:
+          maju();
+          break;
+        case 3:
+          trcng_kanan();
+          break;
+        case 4:
+          trcng_kiri();
+          break;
+        case 5:
+          posisi_awal();
+          break;
+          
+       }
+
+
+}
+
+ros::Subscriber<std_msgs::UInt16> sub("chatter", messageCb );
+
+
+//////////////////////////////////////////////////////
+
+  
+
+#define memori_data 25  //jumlah memori per koordinat per kaki
+
+//parsing
+String dataIn;
+String dt[10];
+int i;
+boolean parsing = false;
+
+
+///////// parsing 2 /
+int masuk;
+int terima;
+/////////
+
+//InverseK
+float c = 28.84;
+float f = 50.15;
+float t = 77.45;
+float x, y, z, px, py, pz;
+float theta_c, theta_f, theta_t;                 //sudut dari analisa IK
+float theta_c_real, theta_f_real, theta_t_real;  //sudut hasil normalisasi servo
+float theta_f1, theta_f2, a, x0, x1;             //digunakan pd perhitungann
+
+//KONFIGURASI TRAJECTORY
+float iterasi = 0.1;  //banyak step 1/0.05=20
+float titik = 0.05;
+int dly_trj = 10;  //delay trajektori yg dipakai
+int dly_rintangan = 5;
+//titik puncak langkah
+float x_awal, y_awal, z_awal, z_puncak;
+float x_akhir, y_akhir, z_akhir;
+//variabel data titik trajectory
+int jlh_data;
+//L1
+float array_px_L1[memori_data];
+float array_py_L1[memori_data];
+float array_pz_L1[memori_data];
+//L2
+float array_px_L2[memori_data];
+float array_py_L2[memori_data];
+float array_pz_L2[memori_data];
+
+//R1
+float array_px_R1[memori_data];
+float array_py_R1[memori_data];
+float array_pz_R1[memori_data];
+//R2
+float array_px_R2[memori_data];
+float array_py_R2[memori_data];
+float array_pz_R2[memori_data];
+
+
+//variabel koordinat inverse kinematics (current position)
+float L1_x, L1_y, L1_z;  //kaki L1
+float L2_x, L2_y, L2_z;  //kaki L2
+
+float R1_x, R1_y, R1_z;  //kaki R1
+float R2_x, R2_y, R2_z;  //kaki R2
+
+
+
+
+//int ccc = 0;
+//const int pat = 6;
+
+
+DynamixelWorkbench dxl_wb;
+
+const uint8_t handler_index = 0;
+
+int32_t posisi_servo[12];
+
+uint8_t dxl_id[12] = { DXL_ID_1, DXL_ID_2, DXL_ID_3,
+                       DXL_ID_4, DXL_ID_5, DXL_ID_6,
+                       DXL_ID_7, DXL_ID_8, DXL_ID_9,
+                       DXL_ID_10, DXL_ID_11, DXL_ID_12 };
+
+void Inverse_s(uint8_t dxl_id, float x, float y, float z) {
+  const char *log;  // syncwrite opencr
+  //a. HITUNG THETA Coxa
+  //hitung theta c
+
+  theta_c = atan2(y, x);
+  theta_c = theta_c * 180 / PI;  //rad to deg
+  x0 = sqrt(sq(y) + sq(x));
+
+  //b. HITUNG THETA Femur
+  //hitung theta f1
+  x1 = x0 - c;  // pengurangan panjang x0 dan coxa
+  theta_f1 = atan2(z, x1);
+  theta_f1 = theta_f1 * 180 / PI;
+  //hitung panjang a
+  a = sqrt(sq(z) + sq(x1));
+  //hitung f2
+  theta_f2 = acos((sq(f) + sq(a) - sq(t)) / (2 * a * f));
+  theta_f2 = theta_f2 * 180 / PI;
+  // hitung f
+  theta_f = theta_f1 + theta_f2;
+  //c. HITUNG THETA Tibia
+  //hitung theta t
+  theta_t = acos((sq(f) + sq(t) - sq(a)) / (2 * f * t));
+  theta_t = (theta_t * (180 / PI)) - 90;
+
+  //d. Normalisasi 0 derajat servo
+  if (dxl_id == R1 || dxl_id == R2) {
+    // coba hitung manual
+    theta_c_real = 150 - theta_c;
+    theta_f_real = 150 - theta_f;
+    theta_t_real = 150 + theta_t;
+  }
+  if (dxl_id == L1 || dxl_id == L2) {
+    if (theta_c < 0) theta_c = 360 + theta_c;
+    theta_c_real = 330 - theta_c;
+    theta_f_real = 150 - theta_f;
+    theta_t_real = 150 + theta_t;
+  }
+  switch (dxl_id) {
+    case R1:
+      //putar
+      posisi_servo[0] = theta_t_real * 3.41;
+      posisi_servo[1] = theta_f_real * 3.41;
+      posisi_servo[2] = theta_c_real * 3.41;
+
+
+      dxl_wb.syncWrite(handler_index, &posisi_servo[0], &log);
+
+      R1_x = x;
+      R1_y = y;
+      R1_z = z;
+      break;
+    case R2:
+      //putar
+      posisi_servo[3] = theta_t_real * 3.41;
+      posisi_servo[4] = theta_f_real * 3.41;
+      posisi_servo[5] = theta_c_real * 3.41;
+
+
+      dxl_wb.syncWrite(handler_index, &posisi_servo[0], &log);
+
+      R2_x = x;
+      R2_y = y;
+      R2_z = z;
+      break;
+    case L1:
+      //putar
+      posisi_servo[6] = theta_t_real * 3.41;
+      posisi_servo[7] = theta_f_real * 3.41;
+      posisi_servo[8] = theta_c_real * 3.41;
+
+
+      dxl_wb.syncWrite(handler_index, &posisi_servo[0], &log);
+
+      L1_x = x;
+      L1_y = y;
+      L1_z = z;
+      break;
+    case L2:
+      //putar
+      posisi_servo[9] = theta_t_real * 3.41;
+      posisi_servo[10] = theta_f_real * 3.41;
+      posisi_servo[11] = theta_c_real * 3.41;
+
+
+      dxl_wb.syncWrite(handler_index, &posisi_servo[0], &log);
+
+      L2_x = x;
+      L2_y = y;
+      L2_z = z;
+      break;
+  }
+}
+
+void trj_lurus(uint8_t dxl_id, float x0, float y0, float z0, float x1, float y1, float z1) {
+  float xp1, yp1, zp1;  //titik vektor1
+  float xp2, yp2, zp2;  //titik vektor2
+  float xp3, yp3, zp3;  //titik vektor3
+  float xp4, yp4, zp4;  //titik vektor4
+
+  //tentukan titik vektor polinomial
+  xp1 = x0;
+  yp1 = y0;
+  zp1 = z0;  //P1
+  xp2 = x0;
+  yp2 = y0;
+  zp2 = z0;  //P2
+  xp3 = x1;
+  yp3 = y1;
+  zp3 = z1;  //P3
+  xp4 = x1;
+  yp4 = y1;
+  zp4 = z1;  //P4
+  polinomial_trj(dxl_id, xp1, yp1, zp1, xp2, yp2, zp2, xp3, yp3, zp3, xp4, yp4, zp4);
+}
+
+//trayektori langkah
+void trj_langkah(uint8_t dxl_id, float x0, float y0, float z0, float x1, float y1, float zp) {
+  float xp1, yp1, zp1;  //titik vektor1
+  float xp2, yp2, zp2;  //titik vektor2
+  float xp3, yp3, zp3;  //titik vektor3
+  float xp4, yp4, zp4;  //titik vektor4
+
+  float z1;
+  z1 = (zp - (0.25 * z0)) / 0.75;
+  //tentukan titik vektor polinomial
+  xp1 = x0;
+  yp1 = y0;
+  zp1 = z0;  //P1
+  xp2 = x0;
+  yp2 = y0;
+  zp2 = z1;  //P2
+  xp3 = x1;
+  yp3 = y1;
+  zp3 = z1;  //P3
+  xp4 = x1;
+  yp4 = y1;
+  zp4 = z0;  //P4
+  polinomial_trj(dxl_id, xp1, yp1, zp1, xp2, yp2, zp2, xp3, yp3, zp3, xp4, yp4, zp4);
+}
+
+void polinomial_trj(uint8_t dxl_id, float xp1, float yp1, float zp1, float xp2, float yp2, float zp2, float xp3, float yp3, float zp3, float xp4, float yp4, float zp4) {
+  float A, B, C, D;  //utk perhitungan polinomial
+  float px, py, pz;  //hasil polinomial
+  int nmr_data = 0;  //no data array
+
+  //hitung end point dengan polinomial
+
+  for (float t = 0.0; t <= 1.009; t = t + iterasi) {
+    //hitung polinomial
+    A = pow((1 - t), 3);
+    B = 3 * t * sq(1 - t);
+    C = 3 * sq(t) * (1 - t);
+    D = pow(t, 3);
+    px = A * xp1 + B * xp2 + C * xp3 + D * xp4;
+    py = A * yp1 + B * yp2 + C * yp3 + D * yp4;
+    pz = A * zp1 + B * zp2 + C * zp3 + D * zp4;
+
+    //simpan hasil perhitungan
+    switch (dxl_id) {
+      case L1:
+        array_px_L1[nmr_data] = px;
+        array_py_L1[nmr_data] = py;
+        array_pz_L1[nmr_data] = pz;
+        break;
+
+
+      case L2:
+        array_px_L2[nmr_data] = px;
+        array_py_L2[nmr_data] = py;
+        array_pz_L2[nmr_data] = pz;
+        break;
+
+
+      case R1:
+        array_px_R1[nmr_data] = px;
+        array_py_R1[nmr_data] = py;
+        array_pz_R1[nmr_data] = pz;
+        break;
+
+
+      case R2:
+        array_px_R2[nmr_data] = px;
+        array_py_R2[nmr_data] = py;
+        array_pz_R2[nmr_data] = pz;
+        break;
+    }
+
+    nmr_data++;
+  }
+
+  jlh_data = nmr_data;
+}
+//eksekusi trayektori
+void trj_start(uint8_t id_kakiL1, uint8_t id_kakiL2, uint8_t id_kakiR1, uint8_t id_kakiR2) {
+  //Hitung hasil perhitungan tsb menggunakan IK
+
+  for (byte i = 0; i < jlh_data; i++) {
+    if (id_kakiL1 == L1) {
+      Inverse_s(id_kakiL1, array_px_L1[i], array_py_L1[i], array_pz_L1[i]);
+    }
+
+    if (id_kakiL2 == L2) {
+      Inverse_s(id_kakiL2, array_px_L2[i], array_py_L2[i], array_pz_L2[i]);
+    }
+
+    if (id_kakiR1 == R1) {
+      Inverse_s(id_kakiR1, array_px_R1[i], array_py_R1[i], array_pz_R1[i]);
+    }
+
+    if (id_kakiR2 == R2) {
+      Inverse_s(id_kakiR2, array_px_R2[i], array_py_R2[i], array_pz_R2[i]);
+    }
+
+    delay(dly_trj);
+  }
+}
+
+void setup() {
+ // Serial.begin(1000000);
+  //while(!Serial); // Wait for Opening Serial Monitor
+
+  //////////// ros /////////
+    nh.initNode();
+  nh.subscribe(sub);
+  ////////////////////////
+
+  
+  const char *log;
+  bool result = false;
+
+  uint16_t model_number = 0;
+
+
+  result = dxl_wb.init(DEVICE_NAME, BAUDRATE, &log);
+//  if (result == false) {
+//    Serial.println(log);
+//    Serial.println("Failed to init");
+//  }
+//   else {
+//    Serial.print("Succeeded to init : ");
+//    Serial.println(BAUDRATE);
+//  }
+
+  for (int cnt = 0; cnt < 12; cnt++) {
+    result = dxl_wb.ping(dxl_id[cnt], &model_number, &log);
+//    if (result == false) {
+//      Serial.println(log);
+//      Serial.println("Failed to ping");
+//    }
+//     else {
+//      Serial.println("Succeeded to ping");
+//      Serial.print("id : ");
+//      Serial.print(dxl_id[cnt]);
+//      Serial.print(" model_number : ");
+//      Serial.println(model_number);
+//    }
+
+    result = dxl_wb.addSyncWriteHandler(dxl_id[cnt], "Goal_Position", &log);
+//    if (result == false) {
+//      Serial.println(log);
+//      Serial.println("Failed to add sync write handler");
+//    }
+  }
+}
+
+void siap() {
+
+  Inverse_s(L1, -65, 30, -65);
+  Inverse_s(L2, -65, -45, -65);
+  Inverse_s(R1, 65, 30, -65);
+  Inverse_s(R2, 65, -45, -65);
+}
+
+void posisi_awal(){
+    //POSISI AWAL BERDIRI
+    trj_lurus(L1,L1_x,L1_y,L1_z,-55,45,-65);
+    trj_lurus(L2,L2_x,L2_y,L2_z,-55,-45,-65);
+    trj_lurus(R1,R1_x,R1_y,R1_z,55,45,-65);// y tak boleh lewat -130
+    trj_lurus(R2,R2_x,R2_y,R2_z,55,-45,-65);
+    trj_start(L1,L2,R1,R2);
+} 
+
+
+void maju() {
+  //MAJU
+  //langkah kaki kiri
+
+  trj_langkah(L1, L1_x, L1_y, L1_z, -65, 65, -55);  //x0,y0,z0,x1,y1,zp
+  trj_langkah(R2, R2_x, R2_y, R2_z, 65, 0, -55);
+  //geser kaki kanan
+  trj_lurus(R1, R1_x, R1_y, R1_z, 65, 0, -65);
+  trj_lurus(L2, L2_x, L2_y, L2_z, -65, -65, -65);
+  trj_start(L1, L2, R1, R2);
+  //langkah kaki kanan
+  trj_langkah(R1, R1_x, R1_y, R1_z, 65, 65, -55);
+  trj_langkah(L2, L2_x, L2_y, L2_z, -65, 0, -55);
+  //geser kaki kanan
+  trj_lurus(L1, L1_x, L1_y, L1_z, -65, 0, -65);
+  trj_lurus(R2, R2_x, R2_y, R2_z, 65, -65, -65);
+  trj_start(L1, L2, R1, R2);
+}
+
+void mundur() {
+  //MUNDUR
+  //MAJU
+  //langkah kaki kiri
+  trj_langkah(L1, L1_x, L1_y, L1_z, -65, 20, -55);  //x0,y0,x1,y1,z0,zp
+  trj_langkah(R2, R2_x, R2_y, R2_z, 65, -70, -55);
+  //geser kaki kanan
+  trj_lurus(R1, R1_x, R1_y, R1_z, 65, 45, -65);
+  trj_lurus(L2, L2_x, L2_y, L2_z, -65, 0, -65);
+  trj_start(L1, L2, R1, R2);
+  //langkah kaki kanan
+  trj_langkah(R1, R1_x, R1_y, R1_z, 65, 20, -55);
+  trj_langkah(L2, L2_x, L2_y, L2_z, -65, -70, -55);
+  //geser kaki kanan
+  trj_lurus(L1, L1_x, L1_y, L1_z, -65, 45, -65);
+  trj_lurus(R2, R2_x, R2_y, R2_z, 65, 0, -65);
+  trj_start(L1, L2, R1, R2);
+}
+
+void trcng_kanan()
+{
+      trj_langkah(L1,L1_x,L1_y,L1_z,-40, 65,-55); //x0,y0,z0,x1,y1,zp //d, float x0, float y0, float z0, float x1, float y1, float zp
+      trj_langkah(R2,R2_x,R2_y,R2_z, 30,-65,-55);      
+  
+              //geser kaki kanan
+              trj_lurus(R1,R1_x,R1_y,R1_z,55,45,-65);
+              trj_lurus(L2,L2_x,L2_y,L2_z,-55,-45,-65);
+              trj_start(L1,L2,R1,R2);     
+  //MAJU   s
+      //langkah kaki kanan  
+      trj_langkah(R1,R1_x,R1_y,R1_z,50, 25,-55); //x0,y0,z0,x1,y1,zp 
+      trj_langkah(L2,L2_x,L2_y,L2_z,-55,-25,-55);      
+    
+              //geser kaki kanan
+              trj_lurus(L1,L1_x,L1_y,L1_z,-55,45,-65);
+              trj_lurus(R2,R2_x,R2_y,R2_z,55,-45,-65); 
+              trj_start(L1,L2,R1,R2);   
+}
+
+
+void trcng_kiri()
+{
+      //langkah kaki kiri
+      trj_langkah(L1,L1_x,L1_y,L1_z,-65, 25,-55); //x0,y0,z0,x1,y1,zp 
+      trj_langkah(R2,R2_x,R2_y,R2_z,65,-25,-55);      
+  
+              //geser kaki kanan
+              trj_lurus(R1,R1_x,R1_y,R1_z,55,45,-65);
+              trj_lurus(L2,L2_x,L2_y,L2_z,-55,-45,-65);
+              trj_start(L1,L2,R1,R2);    
+  //MAJU   
+      //langkah kaki kanan  
+      trj_langkah(R1,R1_x,R1_y,R1_z, 55, 65,-55); //x0,y0,z0,x1,y1,zp 
+      trj_langkah(L2,L2_x,L2_y,L2_z,-55,-65,-55);      
+    
+              //geser kaki kanan
+              trj_lurus(L1,L1_x,L1_y,L1_z,-55,45,-65);
+              trj_lurus(R2,R2_x,R2_y,R2_z,55,-45,-65); 
+              trj_start(L1,L2,R1,R2);   
+}
+
+
+void loop() {
+  nh.spinOnce();
+  //  const char *log;
+
+//  if (Serial.available()) {
+//    char state = Serial.read();
+//    if (state == '1') {
+//      siap();
+//    } else if (state == '2') {
+//      maju();
+//
+//    } else if (state == '3') {
+//      trcng_kanan();
+//    }
+//    else if (state == '4'){
+//      trcng_kiri();
+//    }
+//    else if (state == '5'){
+//      posisi_awal();
+//    }
+//  }
+
+//while (!Serial.available());
+//masuk = Serial.readString().toInt();
+//if (masuk == 1)
+//{
+//  siap();
+//}
+//else if (masuk == 2)
+//{
+//  maju();
+//}
+//Serial.print(masuk);
+
+//          if(Serial.available()>0)
+//         {
+//                 char inChar = (char)Serial.read();
+//                 dataIn += inChar;
+//                 if (inChar == '\n') {
+//                  parsing = true;
+//                  }
+//         }
+//         if(parsing)
+//         {
+//               parsingData();
+//               parsing=false;
+//               dataIn="";
+//         }
+//       if (dt[0].toInt() == 1)
+//       {
+//        terima = 1;
+//       }
+//
+//       else if (dt[0].toInt() == 2)
+//       {
+//        terima = 2;
+//       }
+//
+//       else if (dt[0].toInt() == 3)
+//       {
+//        terima = 3;
+//       }
+//
+//       else if (dt[0].toInt() == 4)
+//       {
+//        terima = 4;
+//       }
+//
+//       else if (dt[0].toInt() == 5)
+//       {
+//        terima = 5;
+//       }
+//   
+//while (!Serial.available());
+//terima = Serial.readString().toInt();   
+//       switch(terima)
+//       {
+//        case 1 :
+//          siap();
+//          break;
+//        case 2:
+//          maju();
+//          break;
+//        case 3:
+//          trcng_kanan();
+//          break;
+//        case 4:
+//          trcng_kiri();
+//          break;
+//        case 5:
+//          posisi_awal();
+//          break;
+//          
+//       }
+
+
+    //  //RDepan
+    //  posisi_servo[0] = 512;
+    //  posisi_servo[1] = 512;
+    //  posisi_servo[2] = 512;
+    //  //RTengah
+    //  posisi_servo[3] = 512;
+    //  posisi_servo[4] = 512;
+    //  posisi_servo[5] = 512;
+    //  //RBelakang
+    //  posisi_servo[6] = 512;
+    //  posisi_servo[7] = 512;
+    //  posisi_servo[8] = 512;
+    //  //LDepan
+    //  posisi_servo[9] = 512;
+    //  posisi_servo[10] = 512;
+    //  posisi_servo[11] = 512;
+    //  //LTengah
+    //  posisi_servo[12] = 512;
+    //  posisi_servo[13] = 512;
+    //  posisi_servo[14] = 512;
+    //  //LBelakang
+    //  posisi_servo[15] = 512;
+    //  posisi_servo[16] = 512;
+    //  posisi_servo[17] = 512;
+
+    // dxl_wb.syncWrite(handler_index, &posisi_servo[0], &log);
+    //delay(3000);
+  
+}
