@@ -26,15 +26,22 @@
 #define R2 3
 #define xx -1  //none
 
+#define awal 1
+#define kanan 3
+#define kiri 4
+#define jalan 2
+
 //////////////////////////////////////////////////////
 #include <ros.h>
 #include <std_msgs/String.h>
-#include <std_msgs/UInt16.h>
+#include <std_msgs/UInt8.h>
 ros::NodeHandle  nh;
+int tombol;
+int datalidar;
 
-void messageCb( const std_msgs::UInt16& led_msg) {
-
-       switch(led_msg.data)
+void gerak(int isi)
+{
+         switch(isi)
        {
         case 1 :
           siap();
@@ -51,13 +58,84 @@ void messageCb( const std_msgs::UInt16& led_msg) {
         case 5:
           posisi_awal();
           break;
-          
        }
+}
+void messageCb( const std_msgs::UInt8& led_msg) {
+         datalidar = led_msg.data;
+//       switch(led_msg.data)
+//       {
+//        case 1:
+//        tombol = 1;
+//        break;
+//
+//        case 2:
+//        tombol = 2;
+//        break;
+//
+//        case 3:
+//        tombol = 3;
+//        break;
+//
+//        case 4:
+//        tombol = 4;
+//        break;
+//        
+//       }
+//
+//       if (tombol == 1)
+//       {
+//        siap();
+//      
+//       }
+//
+//       else if (tombol == 2)
+//       {
+//         maju();
+//       }
+//
+//       else if (tombol == 3)
+//       {
+//        trcng_kanan();
+//       }
+//
+//       else if (tombol == 4)
+//       {
+//        trcng_kiri();
+//       }
+        
+
+
+       
+       
 
 
 }
 
-ros::Subscriber<std_msgs::UInt16> sub("chatter", messageCb );
+void kirim()
+{
+  if (datalidar == 1)
+       {
+        gerak(awal);
+       }
+
+       else if (datalidar == 2)
+       {
+        gerak(jalan);
+       }
+
+       else if (datalidar == 3)
+       {
+        gerak(kanan);
+       }
+
+       else if (datalidar == 4)
+       {
+        gerak(kiri);
+       }
+          
+}
+
+ros::Subscriber<std_msgs::UInt8> sub("chatter", messageCb );
 
 
 //////////////////////////////////////////////////////
@@ -361,7 +439,7 @@ void trj_start(uint8_t id_kakiL1, uint8_t id_kakiL2, uint8_t id_kakiR1, uint8_t 
 }
 
 void setup() {
- // Serial.begin(1000000);
+  Serial.begin(115200);
   //while(!Serial); // Wait for Opening Serial Monitor
 
   //////////// ros /////////
@@ -506,13 +584,49 @@ void trcng_kiri()
               trj_start(L1,L2,R1,R2);   
 }
 
-
+int laststate;
 void loop() {
+//  siap();
   nh.spinOnce();
+kirim();
   //  const char *log;
 
-//  if (Serial.available()) {
-//    char state = Serial.read();
+//  while (!Serial.available());
+//    byte Data = Serial.read();
+//    Serial.println(Data);
+//    switch(state)
+//    {
+//      case '1':
+//  #    siap();
+//      break;
+//
+//      case '2':
+//       maju();
+//      break;
+
+//
+//     case '3':
+//      trcng_kanan();
+//      break;
+//
+//
+//     case '4':
+//      trcng_kiri();
+//      break;
+//    }
+//    
+//   laststate = state;
+//   if (laststate == '2')
+//   {
+//    maju();
+//   }
+//
+//   else if (laststate == '1')
+//   {
+//    siap();
+//   }
+//    Serial.println(laststate);
+//  }
 //    if (state == '1') {
 //      siap();
 //    } else if (state == '2') {
@@ -530,7 +644,7 @@ void loop() {
 //  }
 
 //while (!Serial.available());
-//masuk = Serial.readString().toInt();
+//masuk = Serial.readString()
 //if (masuk == 1)
 //{
 //  siap();
@@ -538,6 +652,15 @@ void loop() {
 //else if (masuk == 2)
 //{
 //  maju();
+//}
+//else if (masuk == 3)
+//{
+//  trcng_kanan();
+//}
+//
+//else if (masuk == 4)
+//{
+//  trcng_kiri();
 //}
 //Serial.print(masuk);
 
@@ -631,4 +754,5 @@ void loop() {
     // dxl_wb.syncWrite(handler_index, &posisi_servo[0], &log);
     //delay(3000);
   
+
 }
