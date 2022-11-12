@@ -1,0 +1,405 @@
+#!/usr/bin/env python
+
+import rospy
+from std_msgs.msg import UInt32
+from std_msgs.msg import Float64
+from std_msgs.msg import Float32
+from math import copysign, floor
+from adafruit_rplidar import RPLidar
+import numpy as np
+import time
+import math
+#import serial
+import pandas as pd
+import csv
+import openpyxl
+
+##### parsing data arduino ############
+#ser = serial.Serial('/dev/ttyACM0', baudrate = 115200, timeout = 1)
+#time.sleep(5)
+####################################
+
+#### fuzzy
+cog = 0.0
+sigma_alfa_out= 0.0
+sigma_alfa = 0.0
+
+lowpos = 1.0 # # low tunning
+medpos = 2.0  # #med tunning
+highpos = 4.0  ## high tunning
+
+data1 = np.zeros((20,), dtype = float)
+##print(data1)
+jarakk = 0.0
+tambah = 0.0
+hasil = 0.0
+
+data2 = np.zeros((20,), dtype = float)
+##print(data1)
+jarakk1 = 0.0
+tambah1 = 0.0
+hasil1 = 0.0
+
+data3 = np.zeros((20,), dtype = float)
+##print(data1)
+jarakk2 = 0.0
+tambah2 = 0.0
+hasil2 = 0.0
+datalidar3 = 0.0
+
+miux = np.zeros((3,), dtype=float)
+miuy = np.zeros((3,), dtype=float)
+rule = np.zeros((3,3), dtype=float)
+alfa = 0.0
+rule00  = 0.0
+rule01 = 0.0
+rule02 = 0.0
+rule10 = 0.0
+rule11 = 0.0
+rule12 = 0.0
+rule20 = 0.0
+rule21 = 0.0
+rule22 = 0.0
+
+##### PID
+p = 0.0
+i = 0.0
+d = 0.0
+sumerr = 0.0
+selisih = 0.0
+vpid = 0.0
+e2 = 0.0
+pv = 0.0
+st = 0.0
+vpid_new = 0.0
+
+setpoint = 28.0    # #setpoint
+de  = 0.0
+e   = 0.0         ## inputan fuzzyPID
+
+kp = 2.0
+ki = 1.5  ## ki1 = 0.33
+kd = 0.0  ## kd1 = 0.33
+
+kp_out = 0.0
+ki_out = 0.0
+kd_out = 0.0
+
+timeiID  = 0.0
+timenow  = 0.0
+timelast = 0.0
+
+##############################################
+
+
+# Setup the RPLidar
+PORT_NAME = '/dev/ttyUSB0'
+lidar = RPLidar(None, PORT_NAME, timeout=3)
+
+# used to scale data to fit on the screen
+max_distance = 0
+
+
+
+#parsing data
+simpan = '0'
+datakirim =0
+################3
+
+def process_data(jarak,derajat):
+    global tambah
+    global tambah1
+    global tambah2
+    global hasil
+    global hasil2
+    derajat = int(derajat)
+
+    if derajat >= 80 and derajat <= 100:
+        for i in range(20):
+            data1[i] = jarak
+            tambah += data1[i]
+            if i == 19:
+                hasil = tambah / 20
+                hasil = round(hasil, 2)
+                tambah = 0
+        pid(hasil)
+    if derajat >= 60 and derajat <= 80:
+        for i in range(20):
+            data2[i] = jarak
+            tambah1 += data2[i]
+            if i == 19:
+                hasil1 = tambah1 / 20
+                hasil1 = round(hasil1, 2)
+                tambah1 = 0       
+    
+        datalidar2(hasil1)
+    if derajat >= 100 and derajat <= 120:
+        for a in range(20):
+            data3[a] = jarak
+            tambah2 += data3[a]
+            if a == 19:
+                hasil2 = tambah2 / 20
+                hasil2 = round(hasil2, 2)
+                tambah2 = 0          
+        datalidarrr3(hasil2)
+        #print(hasil2)
+        #print(hasil1)
+
+
+    
+        #pid(hasil)
+
+
+def datalidar2(masukan):
+    global lidardata2
+    lidardata2 = masukan
+def datalidarrr3(masukan1):
+    global datalidar3
+    datalidar3 = masukan1
+   
+scan_data = [0]*360
+
+
+def fuzzyeror():
+    ## untuk low
+    if (e <= 10):
+        miux[0] = 0
+
+    elif (e > 10 and e <= 13):
+        miux[0] = ((e) - 10) / (3)
+
+    elif (e > 13 and e <= 16):
+        miux[0] = (16 - (e)) / (3)
+
+    else :
+        miux[0] = 0
+
+    #print(e)
+    # untuk med
+    if (e <= 13): ## KENAPA E < 13
+        miux[1] = 0
+
+    elif (e > 13 and e <= 16):
+        miux[1] = ((e) - (13)) / (3)
+
+    elif (e > 16 and e <= 19):
+        miux [1] = (19 - (e)) / (3)
+
+    else:
+        miux[1] = 0
+
+
+    ## untuk high
+    if (e <= 16):
+        miux[2] = 0
+
+    if (e > 16 and e <= 19):
+        miux[2] = ((e) - 16) / (3)
+
+    elif (e > 19 and e <= 22):
+        miux[2] = (22 - (e)) / (3)
+
+    else:
+        miux[2] = 0
+
+
+def fuzzydeltaerror():
+    # untuk  low2
+    if (de <= 0):
+        miuy[0] = 0
+
+    elif(de > 0 and de <= 0.75):
+        miuy[0] = ((de) - 0) / (0.75)
+
+    elif(de > 0.75 and de <= 1.5):
+        miuy[0] = (1.5 - (de)) / (0.75)
+
+    else:
+        miuy[0] = 0
+
+
+    # untuk med2
+    if (de <= 0.75):
+        miuy[1] = 0
+
+    if (de > 0.75 and de <= 1.5):
+        miuy[1] = ((de) - (0.75)) / (0.75)
+
+    elif(de > 1.5 and de <= 2.25):
+        miuy[1] = (2.25 - de) / (0.75)
+
+    else:
+        miuy[1] = 0
+
+
+    # untuk high2
+    if (de <= 1.5):
+        miuy[2] = 0
+
+    if (de > 1.5 and de <= 2.25):
+        miuy[2] = ((de) - 1.5) / (0.75)
+
+    elif(de > 2.25 and de <= 3):
+        miuy[2] = (3 - (de)) / (0.75)
+
+    else:
+        miuy[2] = 0
+
+
+
+def rules():
+
+    i = 0
+    j = 0
+    for i in range(3):
+        for i in range(3):
+            alfa = max(miux[i], miuy[j])
+            rule[i][j] = alfa
+
+    rule00 = rule[0][0] # (low,low2 = LOW)
+    rule01 = rule[0][1] # (med,low2 = MED)
+    rule02 = rule[0][2] # (high,low2 = LOW)
+
+    rule10 = rule[1][0] # (low,med2 = MED)
+    rule11 = rule[1][1] # (med,med2 = MED)
+    rule12 = rule[1][2] # (high,med2 = HIGH)
+
+    rule20 = rule[2][0] # (low,high2 = HIGH)
+    rule21 = rule[2][1] # (med,high2 = HIGH)
+    rule22 = rule[2][2] # (high,high2 = LOW)
+    defuzzy(rule00,rule01,rule02,rule10,rule11,rule12,rule20,rule21,rule22)
+
+def defuzzy(rule00,rule01,rule02,rule10,rule11,rule12,rule20,rule21,rule22):
+    global cog
+    sigma_alfa_out = (rule00 * lowpos) + (rule01 * medpos) + (rule02 * lowpos) + (rule10 * medpos) + (rule11 * medpos) + (rule12 * highpos) + (rule20 * highpos) + (rule21 * highpos) + (rule22 * lowpos);
+    sigma_alfa = rule00 + rule01 + rule02 + rule10 + rule11 + rule12 + rule20 + rule21 + rule22
+
+    cog = round(sigma_alfa_out / sigma_alfa,2)
+    if (sigma_alfa_out == 0 or sigma_alfa == 0):
+        cog = 0
+   # print(cog)
+
+def getValues(salah,pidhasil):
+    fake = str(0)
+    salah = str(salah)
+    pidhasil = str(pidhasil)
+    kirim = fake + ',' + salah + ',' + pidhasil
+   # ser.write(kirim.encode('ascii')+b'\r\n')
+###############################
+#
+def cobakirim(wee,wee2,wee3):
+    global datalidar3
+    global lidardata2
+ #   global lidardata3
+    global hasil2
+    global simpan
+    global datakirim
+    #print(datalidar3)
+    rospy.init_node('beginner_tutorials', anonymous= False)
+    rate = rospy.Rate(10)
+    pub = rospy.Publisher('JarakLidar', Float64, queue_size=10)
+    pub1 = rospy.Publisher('JarakLidar60_80', Float64, queue_size=10)
+    pub2 = rospy.Publisher('VPID', Float64, queue_size=10)
+    pub3 = rospy.Publisher('JarakLidar100_120', Float64, queue_size=10)
+    pub4 = rospy.Publisher('eror', Float64, queue_size=10)
+    if not rospy.is_shutdown():
+        string_msgs1 = float(lidardata2)
+        string_msgs3 = float(datalidar3)
+        string_msgs = float(wee)
+        string_msgs2 = float(wee2)
+        string_msgs4 = float(wee3)
+        pub3.publish(string_msgs3)
+        pub.publish(string_msgs)
+        pub1.publish(string_msgs1)
+        pub2.publish(string_msgs2)
+        pub4.publish(string_msgs4)
+        
+        #rate.sleep()
+
+    else:
+        lidar.stop()
+        lidar.stop_motor()
+        lidar.disconnect()
+
+        
+def pid(pv):
+    global e
+    global sumerr
+    global selisih
+    global de
+    global e2
+    global timelast
+
+    fuzzyeror()
+    fuzzydeltaerror()
+    rules()
+    timenow = round(time.time()*1000)
+    timeiID = timenow - timelast
+    ##print("Milliseconds since epoch:",timenow)
+
+    ## konstanta
+    kp_out = cog * kp
+    ki_out = cog * ki
+    kd_out = cog * kd
+
+    # inputan pv
+    pvv =  pv
+    ############
+    p = round(kp_out * e,2)
+    i = round(ki_out * sumerr,2)
+    d = round(kd_out * selisih,2)
+
+    sumerr = e * timeiID
+
+
+    e = round(setpoint - pvv,2)
+
+    de = e - e2
+    de = round(abs(de),2)
+    selisih = de / timeiID
+ #   print(pvv)
+    vpid = p + i + d
+    vpid = abs(round(vpid,2))
+   # print(pvv) 
+    cobakirim(pvv,vpid,e)
+  #  getValues(e,vpid)
+   # ser.write('*x,123,y,456'.encode('ascii')+b'\r\n')
+
+
+    e2 = e
+    timelast = timenow
+  #  with open('hasil.csv', mode='a') as f:
+   ##         keys = ['Erorr', 'Time', 'Vpid', 'p', 'i','d']
+    #        writer = csv.DictWriter(f, fieldnames=keys)
+    #        writer.writeheader() # add column names in the CSV file
+    #        writer.writerow({'Erorr': e, 'Time': timenow, 'Vpid': vpid, 'p': p, 'i' :i, 'd':d})
+
+
+
+
+try:
+   # #print(lidar.get_info())
+    for scan in lidar.iter_scans():
+        for (_, angle, distance) in scan:
+            scan_data[min([359, floor(angle)])] = distance /10
+            jarakk = scan_data[min([359, floor(angle)])]
+            process_data(jarakk,angle)
+            #process_data2(jarakk,angle)
+
+
+except KeyboardInterrupt:
+    print('Stopping.')
+
+   # plt.plot(time, position)
+   # plt.xlabel('Time ')
+   # plt.ylabel('Position')#
+
+    #plt.show()
+
+
+
+
+##### Jalan kan lidar
+lidar.stop()
+lidar.stop_motor()
+lidar.disconnect()
