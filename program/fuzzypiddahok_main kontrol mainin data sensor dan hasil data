@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+import rospy
+from std_msgs.msg import Float64
+from std_msgs.msg import UInt8 
+from std_msgs.msg import String 
+
+kirimdata = 0
+datalidar = 0.0
+datalidar1 = 0.0
+datalidar2 = 0.0
+lastdata = 0
+dataeror = 0.0
+def callback(data):
+    global datalidar
+    #print(data.data)
+    datalidar = float(data.data)
+       #rate.sleep()
+
+def callback2(data1):
+    global datalidar1
+    datalidar1 = float(data1.data)
+
+def callback3(data2):
+    global datalidar2
+    datalidar2 = float(data2.data)
+
+def callback4(data3):
+    global dataeror
+    dataeror = float(data3.data)
+
+def listener():
+
+    # In ROS, nodes are uniquely named. If two nodes with the same
+    # name are launched, the previous one is kicked off. The
+    # anonymous=True flag means that rospy will choose a unique
+    # name for our 'listener' node so that multiple listeners can
+    # run simultaneously.
+    rospy.init_node('Final_Project', anonymous=True)
+    rospy.Subscriber("JarakLidar", Float64, callback)
+    rospy.Subscriber("JarakLidar60_80", Float64,callback2)
+    rospy.Subscriber("VPID", Float64,callback3)
+    rospy.Subscriber("eror", Float64,callback4)
+    talker()
+    # spin() simply keeps python from exiting until this node is stopped
+    rospy.spin()
+def talker():
+    global kirimdata
+    global lastdata
+    #global datalidar1
+    #print(datalidar)
+    pub = rospy.Publisher('chatter', UInt8, queue_size=10)
+    rospy.init_node('Final_Project', anonymous=True)
+    rate = rospy.Rate(50) # 10hz
+   # nilaieror = datalidar - 20
+   # print(nilaieror)
+    while not rospy.is_shutdown():
+        if datalidar1 <= 17:
+            kirimdata = 4 
+        elif dataeror >= 1 and dataeror <= 3:
+            kirimdata = 2
+        elif dataeror >= 7:
+            kirimdata = 3
+        elif dataeror < 0:
+            kirimdata = 4
+      #  if (datalidar >= 19 and datalidar <= 21):
+      #      kirimdata = 2
+      #  elif (datalidar1 <= 17):
+      #      kirimdata = 4
+      #  elif (datalidar2 <= 16):
+      #      kirimdata = 3
+      #  elif datalidar >= 25:
+      #      kirimdata = 1
+#        elif datalidar >30 and datalidar1 < 35 :
+#            kirimdata = 2
+
+#        elif datalidar1 > 36 and datalidar1 < 42:
+#            kirimdata = 4
+
+#        elif datalidar1 > 43 :
+#            kirimdata = 1
+        
+        #kirimdata != lastdata:
+        hello_str = kirimdata
+        ##rospy.loginfo(hello_str)
+        pub.publish(hello_str)
+        #lastdata = kirimdata
+        rate.sleep()
+while True:
+    listener()
+    #talker()
